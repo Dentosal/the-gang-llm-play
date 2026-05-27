@@ -69,10 +69,6 @@ impl State {
         self.river_cards.hole_cards_per_player.len()
     }
 
-    pub fn current_turn(&self) -> usize {
-        self.action_log.len() % self.players()
-    }
-
     pub fn tokens_held_by_players(&self) -> Vec<Option<Token>> {
         let mut tokens = vec![None; self.players()];
         for (i, action) in self.action_log.iter().enumerate() {
@@ -122,22 +118,6 @@ impl State {
             community_cards: self.river_cards.community_cards,
             hand: self.river_cards.hole_cards_per_player[player_index],
         }
-    }
-
-    /// Description of the whole game state as seen by the current player, including the action log.
-    pub fn description(&self) -> String {
-        let mut desc = format!("{}\n", self.view_for_player(self.current_turn()));
-        for (i, action) in self.action_log.iter().enumerate() {
-            let turn = i % self.players();
-            match action {
-                Action::Pass => desc.push_str(&format!("Player {}: pass\n", turn)),
-                Action::Swap(token) => {
-                    desc.push_str(&format!("Player {}: take token {}\n", turn, token.0))
-                }
-                Action::Return => desc.push_str(&format!("Player {}: return token\n", turn)),
-            }
-        }
-        desc
     }
 }
 

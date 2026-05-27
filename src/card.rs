@@ -29,7 +29,7 @@ pub struct Rank(u8);
 
 impl Rank {
     pub fn new(value: u8) -> Self {
-        if value < 1 || value > 14 {
+        if !(1..=14).contains(&value) {
             panic!("Rank must be between 1 and 14 (inclusive)");
         }
         if value == 1 {

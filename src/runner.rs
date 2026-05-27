@@ -20,8 +20,8 @@ pub fn play_game(models: Vec<String>, max_rounds: usize) -> bool {
 
     for round in 1..=max_rounds {
         println!("\n--- Round {} ---", round);
-        for player_idx in 0..players {
-            let action = match ai[player_idx].choose_action(&state, player_idx, round, max_rounds) {
+        for (player_idx, player_ai) in ai.iter_mut().enumerate().take(players) {
+            let action = match player_ai.choose_action(&state, player_idx, round, max_rounds) {
                 Ok(a) => a,
                 Err(e) => {
                     eprintln!("\n=== Game aborted: {} ===", e);

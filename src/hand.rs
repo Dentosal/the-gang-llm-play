@@ -18,7 +18,7 @@ pub enum Score {
 impl Score {
     pub fn from_hand(mut cards: [Card; 5]) -> Self {
         // Sort cards by rank in descending order, so that the highest card is first
-        cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+        cards.sort_by_key(|card| std::cmp::Reverse(card.rank));
 
         let is_flush = cards.iter().all(|card| card.suit == cards[0].suit);
         let is_straight = cards
@@ -71,14 +71,12 @@ impl Score {
             .iter()
             .enumerate()
             .find(|&(_, &count)| count == 3)
-        {
-            if let Some((two_rank, _)) = rank_counts
+            && let Some((two_rank, _)) = rank_counts
                 .iter()
                 .enumerate()
                 .find(|&(_, &count)| count == 2)
-            {
-                return Self::FullHouse(Rank::from_index(three_rank), Rank::from_index(two_rank));
-            }
+        {
+            return Self::FullHouse(Rank::from_index(three_rank), Rank::from_index(two_rank));
         }
 
         // Straight
