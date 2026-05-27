@@ -90,7 +90,7 @@ impl Player for OllamaPlayer {
         max_rounds: usize,
     ) -> Result<Action, String> {
         let score = Score::best_score(state.hand, state.community_cards);
-        let tokens = tokens_held_by_players(&state.action_log, self.player_count);
+        let tokens = tokens_held_by_players(state.action_log, self.player_count);
         let my_token = tokens[self.player_index];
         let my_token_str = match my_token {
             Some(tok) => format!("token {}", tok.0),

@@ -38,7 +38,8 @@ impl Player for DeterministicPlayer {
             non_game_ending_actions(state.action_log, self.player_index, self.player_count);
 
         // Space of still-possible cards; we signal to reduce this space until only one possibility remains.
-        let player_limits = compute_player_limits(state.action_log, self.player_count);
+        let player_limits =
+            compute_player_limits(state.community_cards, state.action_log, self.player_count);
 
         // Check if all required info has been communicated already, and if so just pick a token.
         // Note that we must not pick a token that would end the game incorrectly here.
@@ -53,7 +54,7 @@ impl Player for DeterministicPlayer {
         if all_known {
             let player_hands: Vec<[Card; 2]> = player_limits
                 .iter()
-                .map(|r| possible_holes()[r.start])
+                .map(|r| possible_holes(state.community_cards)[r.start])
                 .collect();
 
             let ranking = (RiverCards {
@@ -100,7 +101,7 @@ impl Player for DeterministicPlayer {
 
         // Otherwise communicate more
         let space = player_limits[self.player_index];
-        Ok(actions[pick_action(state.hand, actions.len(), space)?])
+        Ok(actions[pick_action(state.community_cards, state.hand, actions.len(), space)?])
     }
 }
 
@@ -120,11 +121,17 @@ fn ranking_incr_duplicates(ranking: Vec<usize>) -> Vec<usize> {
 }
 
 /// All possible hole card combinations, in deterministic order.
-fn possible_holes() -> Vec<[Card; 2]> {
+fn possible_holes(community_cards: [Card; 5]) -> Vec<[Card; 2]> {
     let mut pairs = Vec::new();
     let deck = full_deck();
     for i in 0..deck.len() {
+        if community_cards.contains(&deck[i]) {
+            continue;
+        }
         for j in (i + 1)..deck.len() {
+            if community_cards.contains(&deck[j]) {
+                continue;
+            }
             let mut pair = [deck[i], deck[j]];
             pair.sort();
             pairs.push(pair);
@@ -135,9 +142,13 @@ fn possible_holes() -> Vec<[Card; 2]> {
 
 /// The publicly known knowledge about which hole cards each player could still be holding.
 /// Event-sourcing-style computed from actions.
-fn compute_player_limits(action_log: &[Action], player_count: usize) -> Vec<RangeInclusive<usize>> {
+fn compute_player_limits(
+    community_cards: [Card; 5],
+    action_log: &[Action],
+    player_count: usize,
+) -> Vec<RangeInclusive<usize>> {
     let mut limits: Vec<RangeInclusive<usize>> =
-        vec![(0..=(possible_holes().len() - 1)).into(); player_count];
+        vec![(0..=(possible_holes(community_cards).len() - 1)).into(); player_count];
 
     for (i, action) in action_log.iter().enumerate() {
         let actor = i % player_count;
@@ -162,6 +173,7 @@ fn compute_player_limits(action_log: &[Action], player_count: usize) -> Vec<Rang
 }
 
 fn pick_action(
+    community_cards: [Card; 5],
     mut my_hand: [Card; 2],
     available_action_count: usize,
     space: RangeInclusive<usize>,
@@ -179,7 +191,7 @@ fn pick_action(
     // Partition the remaining space by the number of non-game-ending actions,
     // and pick the one corresponding to our index
     my_hand.sort();
-    let our_index = possible_holes()
+    let our_index = possible_holes(community_cards)
         .iter()
         .position(|h| *h == my_hand)
         .expect("possible_holes did not include our hand");
@@ -254,10 +266,10 @@ fn non_game_ending_actions(
 
     // And lastly, tokens from other players are always takeable
     for (i, tok) in tokens.iter().enumerate() {
-        if i != player_index {
-            if let Some(tok) = tok {
-                result.push(Action::Take(*tok));
-            }
+        if i != player_index
+            && let Some(tok) = tok
+        {
+            result.push(Action::Take(*tok));
         }
     }
 
@@ -267,6 +279,7 @@ fn non_game_ending_actions(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::card::{Rank, Suit};
 
     #[test]
     fn test_ranking_incr_duplicates() {
@@ -277,7 +290,30 @@ mod test {
 
     #[test]
     fn pick_action_and_limit_range_bijection() {
-        let possible_holes = possible_holes();
+        let community_cards = [
+            Card {
+                rank: Rank::new(1),
+                suit: Suit::Diamonds,
+            },
+            Card {
+                rank: Rank::new(2),
+                suit: Suit::Diamonds,
+            },
+            Card {
+                rank: Rank::new(3),
+                suit: Suit::Diamonds,
+            },
+            Card {
+                rank: Rank::new(4),
+                suit: Suit::Diamonds,
+            },
+            Card {
+                rank: Rank::new(5),
+                suit: Suit::Diamonds,
+            },
+        ];
+
+        let possible_holes = possible_holes(community_cards);
         let limit = possible_holes.len();
         let full_range: RangeInclusive<usize> = (0..=limit).into();
 
@@ -294,11 +330,30 @@ mod test {
 
                 let mut space = full_range;
                 while space.start != space.last {
-                    let action = pick_action(holes, aac, space).unwrap();
+                    let action = pick_action(community_cards, holes, aac, space).unwrap();
                     space = limit_range(space, action, aac);
                 }
                 assert_eq!(space.start, holes_index);
             }
+        }
+    }
+
+    #[test]
+    fn always_wins() {
+        let player_count = 4;
+        let game_rounds = 100;
+        for _ in 0..10 {
+            let players: Vec<Box<dyn Player>> = (0..player_count)
+                .map(|player_index| -> Box<dyn Player> {
+                    Box::new(DeterministicPlayer::new(
+                        player_index,
+                        player_count,
+                        game_rounds,
+                    ))
+                })
+                .collect();
+            let victory = crate::runner::play_game(players, game_rounds);
+            assert!(victory, "DeterministicPlayer should always win");
         }
     }
 }
