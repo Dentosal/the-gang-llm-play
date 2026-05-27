@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::state::{Action, State, Token};
+use crate::hand::Score;
+use crate::runner::Player;
+use crate::state::{Action, StateView, Token, tokens_held_by_players};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Message {
@@ -13,10 +15,17 @@ struct Message {
 pub struct OllamaPlayer {
     model: String,
     history: Vec<Message>,
+    player_index: usize,
+    player_count: usize,
 }
 
 impl OllamaPlayer {
-    pub fn new(model: impl Into<String>, players: usize, max_rounds: usize) -> Self {
+    pub fn new(
+        model: impl Into<String>,
+        player_index: usize,
+        player_count: usize,
+        max_rounds: usize,
+    ) -> Self {
         let model = model.into();
         let system = format!(
             "You are playing a cooperative poker hand-ranking game with {} players.\n\
@@ -51,10 +60,10 @@ impl OllamaPlayer {
                TAKE <n>   (where n is the token number)\n\
                RETURN\n\
              Example: <think>I have two pair, probably mid-strength.</think> TAKE 1",
-            players,
-            players,
-            players - 1,
-            players - 1,
+            player_count,
+            player_count,
+            player_count - 1,
+            player_count - 1,
             max_rounds,
         );
         Self {
@@ -63,26 +72,31 @@ impl OllamaPlayer {
                 role: "system".into(),
                 content: system,
             }],
+            player_index,
+            player_count,
         }
     }
+}
 
-    pub fn choose_action(
+impl Player for OllamaPlayer {
+    fn name(&self) -> &str {
+        &self.model
+    }
+
+    fn choose_action(
         &mut self,
-        state: &State,
-        player_index: usize,
+        state: &StateView<'_>,
         round: usize,
         max_rounds: usize,
     ) -> Result<Action, String> {
-        let view = state.view_for_player(player_index);
-        let hole = state.river_cards.hole_cards_per_player[player_index];
-        let score = crate::hand::Score::best_score(hole, state.river_cards.community_cards);
-        let tokens = state.tokens_held_by_players();
-        let my_token = tokens[player_index];
+        let score = Score::best_score(state.hand, state.community_cards);
+        let tokens = tokens_held_by_players(&state.action_log, self.player_count);
+        let my_token = tokens[self.player_index];
         let my_token_str = match my_token {
             Some(tok) => format!("token {}", tok.0),
             None => "no token".to_string(),
         };
-        let all_token_status: String = (0..state.players())
+        let all_token_status: String = (0..self.player_count)
             .map(|i| match tokens[i] {
                 Some(tok) => format!("  Token {}: held by Player {}", tok.0, i),
                 None => format!("  Token {}: unclaimed", i),
@@ -98,10 +112,10 @@ impl OllamaPlayer {
                 .iter()
                 .enumerate()
                 .map(|(i, action)| {
-                    let actor = i % state.players();
+                    let actor = i % self.player_count;
                     match action {
                         crate::state::Action::Pass => format!("  Player {}: pass", actor),
-                        crate::state::Action::Swap(tok) => {
+                        crate::state::Action::Take(tok) => {
                             format!("  Player {}: take token {}", actor, tok.0)
                         }
                         crate::state::Action::Return => format!("  Player {}: return token", actor),
@@ -120,15 +134,13 @@ impl OllamaPlayer {
              Token state:\n{}\n\nWhat do you do?",
             round,
             max_rounds,
-            player_index,
+            self.player_index,
             my_token_str,
-            view,
+            state,
             score,
             action_history,
             all_token_status,
         );
-
-        // println!("###\n{}\n\n{}\n###", self.history[0].content, user_msg);
 
         self.history.push(Message {
             role: "user".into(),
@@ -138,16 +150,9 @@ impl OllamaPlayer {
         let reply = self.call_ollama().map_err(|e| {
             format!(
                 "[Player {} / {}] Ollama error: {}",
-                player_index, self.model, e
+                self.player_index, self.model, e
             )
         })?;
-
-        println!(
-            "[Player {} / {}] {}",
-            player_index,
-            self.model,
-            reply.trim()
-        );
 
         self.history.push(Message {
             role: "assistant".into(),
@@ -157,14 +162,16 @@ impl OllamaPlayer {
         parse_action(&reply).map_err(|e| {
             format!(
                 "[Player {} / {}] Invalid action {:?}: {}",
-                player_index,
+                self.player_index,
                 self.model,
                 reply.trim(),
                 e
             )
         })
     }
+}
 
+impl OllamaPlayer {
     fn call_ollama(&self) -> Result<String, Box<dyn std::error::Error>> {
         #[derive(Serialize)]
         struct Request<'a> {
@@ -215,7 +222,7 @@ fn parse_action(text: &str) -> Result<Action, &'static str> {
             .take_while(|c| c.is_ascii_digit())
             .collect();
         if let Ok(n) = digits.parse::<usize>() {
-            return Ok(Action::Swap(Token(n)));
+            return Ok(Action::Take(Token(n)));
         }
     }
     Err("expected PASS or SWAP <n>")

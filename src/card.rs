@@ -38,11 +38,11 @@ impl Rank {
         Rank(value)
     }
 
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         (self.0 - 2) as usize
     }
 
-    pub fn from_index(index: usize) -> Self {
+    pub const fn from_index(index: usize) -> Self {
         if index >= 13 {
             panic!("Index must be between 0 and 12");
         }

@@ -27,3 +27,9 @@ Example:
 ```bash
 cargo run -- --model llama3.3:70b --players 4 --rounds 10
 ```
+
+The deterministic information-theoretic solution is available too:
+
+```bash
+cargo run -- --model deterministic --players 4 --rounds 10
+```

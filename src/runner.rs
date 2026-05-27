@@ -1,39 +1,45 @@
-use crate::ai::OllamaPlayer;
-use crate::state::State;
+use crate::state::{Action, State, StateView, tokens_held_by_players};
 
-/// Run a full game with the given Ollama models (one per player).
+pub trait Player {
+    fn name(&self) -> &str;
+    fn choose_action(
+        &mut self,
+        state: &StateView,
+        round: usize,
+        max_rounds: usize,
+    ) -> Result<Action, String>;
+}
+
+/// Run a full game with the given players (one per seat).
 /// `max_rounds` is the maximum number of full rounds (each player acts once per round).
 /// Returns `true` if the players achieved a correct ranking before the limit, `false` otherwise.
-pub fn play_game(models: Vec<String>, max_rounds: usize) -> bool {
-    let players = models.len();
-    let mut state = State::new(players);
-    let mut ai: Vec<OllamaPlayer> = models
-        .iter()
-        .map(|m| OllamaPlayer::new(m, players, max_rounds))
-        .collect();
+pub fn play_game(mut players: Vec<Box<dyn Player>>, max_rounds: usize) -> bool {
+    let n = players.len();
+    let mut state = State::new(n);
+    let names: Vec<&str> = players.iter().map(|p| p.name()).collect();
 
-    println!(
-        "=== New game: {} players, models: {:?} ===",
-        players, models
-    );
+    println!("=== New game: {} players, models: {:?} ===", n, names);
     print_initial_state(&state);
 
     for round in 1..=max_rounds {
         println!("\n--- Round {} ---", round);
-        for (player_idx, player_ai) in ai.iter_mut().enumerate().take(players) {
-            let action = match player_ai.choose_action(&state, player_idx, round, max_rounds) {
+        for (player_index, player) in players.iter_mut().enumerate() {
+            let state_view = state.view_for_player(player_index);
+            let action = match player.choose_action(&state_view, round, max_rounds) {
                 Ok(a) => a,
                 Err(e) => {
                     eprintln!("\n=== Game aborted: {} ===", e);
                     return false;
                 }
             };
+            println!("[Player {} / {}] {:?}", player_index, player.name(), action);
+
             state.action_log.push(action);
 
             if let Some(victory) = state.is_victory() {
                 println!(
                     "\n=== Game over after round {}, turn {} ===",
-                    round, player_idx
+                    round, player_index
                 );
                 print_result(&state, victory);
                 return victory;
@@ -68,7 +74,7 @@ fn print_initial_state(state: &State) {
 }
 
 fn print_result(state: &State, victory: bool) {
-    let tokens = state.tokens_held_by_players();
+    let tokens = tokens_held_by_players(&state.action_log, state.players());
     let ranking = state.river_cards.rank_hands();
     println!("Correct ranking : {:?}", ranking);
     println!(

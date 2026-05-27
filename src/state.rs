@@ -42,12 +42,13 @@ impl RiverCards {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token(pub usize);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// No action, next player can act.
     Pass,
     /// Take a token, either from the middle or from another player.
     /// Any previously taken token is returned to the middle.
-    Swap(Token),
+    Take(Token),
     /// Return the token you're currently holding to the unclaimed pool in the middle.
     Return,
 }
@@ -69,33 +70,10 @@ impl State {
         self.river_cards.hole_cards_per_player.len()
     }
 
-    pub fn tokens_held_by_players(&self) -> Vec<Option<Token>> {
-        let mut tokens = vec![None; self.players()];
-        for (i, action) in self.action_log.iter().enumerate() {
-            let turn = i % self.players();
-            match action {
-                Action::Swap(takes) => {
-                    for token in &mut tokens {
-                        if *token == Some(*takes) {
-                            *token = None;
-                            break;
-                        }
-                    }
-                    tokens[turn] = Some(*takes);
-                }
-                Action::Return => {
-                    tokens[turn] = None;
-                }
-                Action::Pass => {}
-            }
-        }
-        tokens
-    }
-
     /// Returns None if the round is not complete,
     /// Some(true) the ranking is correct, Some(false) if the ranking is incorrect.
     pub fn is_victory(&self) -> Option<bool> {
-        let tokens = self.tokens_held_by_players();
+        let tokens = tokens_held_by_players(&self.action_log, self.players());
         let correct_ranking = self.river_cards.rank_hands();
 
         if tokens.iter().any(|t| t.is_none()) {
@@ -113,21 +91,23 @@ impl State {
         }))
     }
 
-    pub fn view_for_player(&self, player_index: usize) -> StateView {
+    pub fn view_for_player(&self, player_index: usize) -> StateView<'_> {
         StateView {
             community_cards: self.river_cards.community_cards,
             hand: self.river_cards.hole_cards_per_player[player_index],
+            action_log: &self.action_log,
         }
     }
 }
 
 /// View of [`State`] from the perspective of a single player.
-pub struct StateView {
-    community_cards: [Card; 5],
-    hand: [Card; 2],
+pub struct StateView<'a> {
+    pub community_cards: [Card; 5],
+    pub hand: [Card; 2],
+    pub action_log: &'a [Action],
 }
 
-impl fmt::Display for StateView {
+impl<'a> fmt::Display for StateView<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let hand_str = format!("{} {}", self.hand[0], self.hand[1]);
         let community_str = self
@@ -138,6 +118,29 @@ impl fmt::Display for StateView {
             .join(" ");
         write!(f, "Hand: {}\nCommunity: {}", hand_str, community_str)
     }
+}
+
+pub fn tokens_held_by_players(action_log: &[Action], players: usize) -> Vec<Option<Token>> {
+    let mut tokens = vec![None; players];
+    for (i, action) in action_log.iter().enumerate() {
+        let turn = i % players;
+        match action {
+            Action::Take(takes) => {
+                for token in &mut tokens {
+                    if *token == Some(*takes) {
+                        *token = None;
+                        break;
+                    }
+                }
+                tokens[turn] = Some(*takes);
+            }
+            Action::Return => {
+                tokens[turn] = None;
+            }
+            Action::Pass => {}
+        }
+    }
+    tokens
 }
 
 #[cfg(test)]
@@ -268,9 +271,9 @@ mod tests {
             ],
         );
         state.action_log = vec![
-            Action::Swap(Token(0)), // Player 0 takes token 0 (worst hand)
-            Action::Swap(Token(1)), // Player 1 takes token 1
-            Action::Swap(Token(2)), // Player 2 takes token 2
+            Action::Take(Token(0)), // Player 0 takes token 0 (worst hand)
+            Action::Take(Token(1)), // Player 1 takes token 1
+            Action::Take(Token(2)), // Player 2 takes token 2
         ];
         assert_eq!(state.is_victory(), Some(true));
     }
@@ -293,9 +296,9 @@ mod tests {
             ],
         );
         state.action_log = vec![
-            Action::Swap(Token(0)), // Player 0 takes token 0 (worst hand)
-            Action::Swap(Token(1)), // Player 1 takes token 1
-            Action::Swap(Token(2)), // Player 2 takes token 2
+            Action::Take(Token(0)), // Player 0 takes token 0 (worst hand)
+            Action::Take(Token(1)), // Player 1 takes token 1
+            Action::Take(Token(2)), // Player 2 takes token 2
         ];
         assert_eq!(state.is_victory(), Some(true));
     }
@@ -318,9 +321,9 @@ mod tests {
             ],
         );
         state.action_log = vec![
-            Action::Swap(Token(0)), // Player 0 takes token 0 (worst hand)
-            Action::Swap(Token(1)), // Player 1 takes token 1
-            Action::Swap(Token(2)), // Player 2 takes token 2
+            Action::Take(Token(0)), // Player 0 takes token 0 (worst hand)
+            Action::Take(Token(1)), // Player 1 takes token 1
+            Action::Take(Token(2)), // Player 2 takes token 2
         ];
         assert_eq!(state.is_victory(), Some(true));
     }
@@ -343,9 +346,9 @@ mod tests {
             ],
         );
         state.action_log = vec![
-            Action::Swap(Token(2)), // Player 0 takes token 2 (best hand) (wrong)
-            Action::Swap(Token(1)), // Player 1 takes token 1
-            Action::Swap(Token(0)), // Player 2 takes token 0 (worst hand) (wrong)
+            Action::Take(Token(2)), // Player 0 takes token 2 (best hand) (wrong)
+            Action::Take(Token(1)), // Player 1 takes token 1
+            Action::Take(Token(0)), // Player 2 takes token 0 (worst hand) (wrong)
         ];
         assert_eq!(state.is_victory(), Some(false));
     }
